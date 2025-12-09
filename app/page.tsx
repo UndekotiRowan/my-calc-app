@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Connect to Supabase using the keys from your .env.local file
+// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -12,20 +12,18 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [inputs, setInputs] = useState({ principal: '', rate: '', time: '' });
   const [result, setResult] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 1. Check if user is logged in
+  // 1. Check if user is logged in immediately when page loads
   useEffect(() => {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user?.email) fetchHistory(user.email);
+      setUser(user); // If user exists, they are logged in
     };
     checkUser();
   }, []);
 
-  // 2. Login function
+  // 2. Login Function
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -33,29 +31,17 @@ export default function Home() {
     });
   };
 
-  // 3. Logout function
+  // 3. Logout Function
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    setHistory([]);
+    setUser(null); // Hide calculator immediately
     setResult(null);
   };
 
-  // 4. Fetch History
-  const fetchHistory = async (email: string) => {
-    const { data } = await supabase
-      .from('history')
-      .select('*')
-      .eq('user_email', email)
-      .order('created_at', { ascending: false });
-    if (data) setHistory(data);
-  };
-
-  // 5. Calculate (Call Python + Save)
+  // 4. The Calculation Logic (Talks to Python)
   const handleCalculate = async () => {
     setLoading(true);
     try {
-      // Call Python API
       const res = await fetch('/api/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,99 +49,97 @@ export default function Home() {
       });
       const data = await res.json();
       setResult(data);
-
-      // Save to Database if logged in
+      
+      // Save to History (Optional - happens in background)
       if (user && data.status === 'success') {
         await supabase.from('history').insert({
           user_email: user.email,
           input_data: inputs,
           result: data.total_amount
         });
-        fetchHistory(user.email);
       }
     } catch (error) {
-      alert("Error connecting to calculation engine");
+      alert("Calculation Error");
     }
     setLoading(false);
   };
 
+  // THE UI: Everything inside here determines what is shown
   return (
-    <div className="min-h-screen bg-gray-50 p-8 font-sans">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-10 max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-800">Finance Calc App</h1>
-        <div className="space-x-4">
-          <a href="/about" className="text-gray-600 hover:text-black">About</a>
-          <a href="/contact" className="text-gray-600 hover:text-black">Contact</a>
-          <a href="/help" className="text-gray-600 hover:text-black">Help</a>
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+      
+      {/* HEADER */}
+      <h1 className="text-3xl font-bold mb-8 text-gray-800">Finance App</h1>
+
+      {/* CONDITIONAL RENDERING: This is the logic you asked for */}
+      {!user ? (
+        // SCENE 1: USER IS NOT LOGGED IN
+        <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-md w-full">
+          <h2 className="text-xl font-semibold mb-4">Welcome Back</h2>
+          <p className="text-gray-600 mb-6">Please sign in to access the calculator and save your history.</p>
+          <button 
+            onClick={handleLogin}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium"
+          >
+            Login with Google
+          </button>
         </div>
-      </div>
-
-      {/* Main Card */}
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-lg">
-        {!user ? (
-          <div className="text-center py-10">
-            <h2 className="text-xl mb-4">Please log in to save your calculations</h2>
-            <button onClick={handleLogin} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
-              Login with Google
-            </button>
+      ) : (
+        // SCENE 2: USER IS LOGGED IN (SHOW CALCULATOR)
+        <div className="bg-white p-8 rounded-xl shadow-lg max-w-lg w-full">
+          <div className="flex justify-between items-center mb-6 border-b pb-4">
+            <span className="text-sm text-green-600 font-medium">✓ Logged in as {user.email}</span>
+            <button onClick={handleLogout} className="text-xs text-red-500 hover:text-red-700 underline">Logout</button>
           </div>
-        ) : (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <p className="text-green-700 font-medium">Welcome, {user.email}</p>
-              <button onClick={handleLogout} className="text-sm text-red-500 border border-red-200 px-3 py-1 rounded">Logout</button>
-            </div>
 
-            {/* Inputs */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              <input type="number" placeholder="Principal ($)" 
-                onChange={e => setInputs({ ...inputs, principal: e.target.value })} 
-                className="border p-3 rounded bg-gray-50" />
-              <input type="number" placeholder="Rate (%)" 
-                onChange={e => setInputs({ ...inputs, rate: e.target.value })} 
-                className="border p-3 rounded bg-gray-50" />
-              <input type="number" placeholder="Time (Years)" 
-                onChange={e => setInputs({ ...inputs, time: e.target.value })} 
-                className="border p-3 rounded bg-gray-50" />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Principal Amount ($)</label>
+              <input 
+                type="number" 
+                onChange={e => setInputs({ ...inputs, principal: e.target.value })}
+                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="e.g. 5000"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rate (%)</label>
+                <input 
+                  type="number" 
+                  onChange={e => setInputs({ ...inputs, rate: e.target.value })}
+                  className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="5"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Time (Years)</label>
+                <input 
+                  type="number" 
+                  onChange={e => setInputs({ ...inputs, time: e.target.value })}
+                  className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="2"
+                />
+              </div>
             </div>
 
             <button 
-              onClick={handleCalculate} 
+              onClick={handleCalculate}
               disabled={loading}
-              className="w-full bg-black text-white py-3 rounded-lg font-bold hover:bg-gray-800 transition">
+              className="w-full bg-black text-white py-3 rounded-lg font-bold hover:bg-gray-800 transition mt-4"
+            >
               {loading ? 'Calculating...' : 'Calculate Interest'}
             </button>
-
-            {/* Results */}
-            {result && result.status === 'success' && (
-              <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-center">
-                <p className="text-gray-600">Total Amount</p>
-                <p className="text-3xl font-bold text-green-700">${result.total_amount}</p>
-                <p className="text-sm text-gray-500 mt-1">Interest Earned: ${result.interest_earned}</p>
-              </div>
-            )}
           </div>
-        )}
-      </div>
 
-      {/* History Section */}
-      {user && history.length > 0 && (
-        <div className="max-w-2xl mx-auto mt-8">
-          <h3 className="font-bold text-gray-700 mb-4">Calculation History</h3>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            {history.map((item: any) => (
-              <div key={item.id} className="p-4 border-b flex justify-between items-center hover:bg-gray-50">
-                <div>
-                  <span className="font-bold text-gray-800">${item.result}</span>
-                  <span className="text-xs text-gray-500 ml-2">({new Date(item.created_at).toLocaleDateString()})</span>
-                </div>
-                <div className="text-xs text-gray-400">
-                  P: {item.input_data.principal} | R: {item.input_data.rate}%
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* RESULT AREA */}
+          {result && result.status === 'success' && (
+            <div className="mt-6 p-4 bg-green-50 border border-green-100 rounded-lg text-center animate-pulse-once">
+              <p className="text-gray-500 text-sm uppercase tracking-wide">Total Amount</p>
+              <p className="text-4xl font-bold text-green-700 mt-1">${result.total_amount}</p>
+              <p className="text-sm text-gray-600 mt-2">Interest Earned: ${result.interest_earned}</p>
+            </div>
+          )}
         </div>
       )}
     </div>
